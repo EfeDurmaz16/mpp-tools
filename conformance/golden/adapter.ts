@@ -124,6 +124,31 @@ function generateConformanceChallengeId(params: {
 	return createHmac('sha256', params.secretKey).update(payload).digest('base64url')
 }
 
+function tempoProofTypedData(params: {
+	chainId: number
+	challengeId: string
+	realm: string
+}) {
+	return {
+		domain: {
+			name: 'MPP',
+			version: '2',
+			chainId: params.chainId,
+		},
+		types: {
+			Proof: [
+				{ name: 'challengeId', type: 'string' },
+				{ name: 'realm', type: 'string' },
+			],
+		},
+		primaryType: 'Proof',
+		message: {
+			challengeId: params.challengeId,
+			realm: params.realm,
+		},
+	}
+}
+
 function hasDuplicateChallengeParameter(header: string): boolean {
 	const seen = new Set<string>()
 	for (const match of header.matchAll(/(?:^|,\s*)(\w+)=/g)) {
@@ -191,6 +216,11 @@ function runCommand(command: string, input: string): Result<unknown> {
 				return success(generateConformanceChallengeId(params))
 			}
 
+			case 'tempo-proof-typed-data': {
+				const params = JSON.parse(input)
+				return success(tempoProofTypedData(params))
+			}
+
 			default:
 				return error(`Unknown command: ${command}`, 'unknown_error')
 		}
@@ -221,6 +251,7 @@ const OP_TO_COMMAND: Record<string, string> = {
 	'base64url.encode': 'base64url-encode',
 	'base64url.decode': 'base64url-decode',
 	'challenge.id': 'generate-challenge-id',
+	'tempo.proof.typed_data': 'tempo-proof-typed-data',
 }
 
 function commandInputForRequest(op: string, input: unknown): string {

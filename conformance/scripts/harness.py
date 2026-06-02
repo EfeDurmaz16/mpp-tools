@@ -26,6 +26,7 @@ COMMAND_TO_OPERATION = {
     "base64url-encode": "base64url.encode",
     "base64url-decode": "base64url.decode",
     "generate-challenge-id": "challenge.id",
+    "tempo-proof-typed-data": "tempo.proof.typed_data",
 }
 
 
@@ -126,7 +127,7 @@ def request_input_for_command(command: str, input_data: str) -> tuple[str, Any]:
     op = COMMAND_TO_OPERATION[command]
     if op in {"challenge.parse", "credential.parse", "receipt.parse"}:
         return op, {"header": input_data}
-    if op in {"challenge.format", "credential.format", "receipt.format", "challenge.id"}:
+    if op in {"challenge.format", "credential.format", "receipt.format", "challenge.id", "tempo.proof.typed_data"}:
         return op, json.loads(input_data)
     if op in {"base64url.encode", "base64url.decode"}:
         return op, {"text": input_data}

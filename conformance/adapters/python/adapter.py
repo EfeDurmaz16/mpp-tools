@@ -61,6 +61,27 @@ def generate_conformance_challenge_id(*, secret_key: str, realm: str, method: st
     return base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
 
 
+def tempo_proof_typed_data(*, chain_id: int, challenge_id: str, realm: str):
+    return {
+        "domain": {
+            "name": "MPP",
+            "version": "2",
+            "chainId": chain_id,
+        },
+        "types": {
+            "Proof": [
+                {"name": "challengeId", "type": "string"},
+                {"name": "realm", "type": "string"},
+            ],
+        },
+        "primaryType": "Proof",
+        "message": {
+            "challengeId": challenge_id,
+            "realm": realm,
+        },
+    }
+
+
 def challenge_to_dict(challenge: Challenge) -> dict:
     """Convert a Challenge to a JSON-serializable dict."""
     result = {
@@ -148,6 +169,7 @@ OP_TO_COMMAND = {
     "base64url.encode": "base64url-encode",
     "base64url.decode": "base64url-decode",
     "challenge.id": "generate-challenge-id",
+    "tempo.proof.typed_data": "tempo-proof-typed-data",
 }
 
 
@@ -294,6 +316,14 @@ def main():
                 expires=params.get("expires"),
                 digest=params.get("digest"),
                 opaque=params.get("opaque"),
+            )
+            print(json.dumps(success(result)))
+        elif command == "tempo-proof-typed-data":
+            params = json.loads(input_data)
+            result = tempo_proof_typed_data(
+                chain_id=params["chainId"],
+                challenge_id=params["challengeId"],
+                realm=params["realm"],
             )
             print(json.dumps(success(result)))
         else:
