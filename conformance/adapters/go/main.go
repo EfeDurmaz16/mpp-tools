@@ -1,10 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -233,21 +230,46 @@ func handleGenerateChallengeID(input string) {
 		return
 	}
 
-	result, err := generateConformanceChallengeID(
-		stringField(data, "secretKey"),
-		stringField(data, "realm"),
-		stringField(data, "method"),
-		stringField(data, "intent"),
-		mapField(data, "request"),
-		stringField(data, "expires"),
-		stringField(data, "digest"),
-		stringField(data, "opaque"),
-	)
+	secretKey := stringField(data, "secretKey")
+	if len([]byte(secretKey)) < minimumSecretKeyBytes {
+		printJSON(commandResponse{Success: false, Error: fmt.Sprintf("secretKey must be at least %d bytes", minimumSecretKeyBytes), ErrorType: "generation_error"})
+		return
+	}
+
+	opaque, err := decodeOpaqueParam(stringField(data, "opaque"))
 	if err != nil {
 		printJSON(commandResponse{Success: false, Error: err.Error(), ErrorType: "generation_error"})
 		return
 	}
+
+	result := mpp.GenerateChallengeID(mpp.GenerateChallengeIDInput{
+		SecretKey: secretKey,
+		Realm:     stringField(data, "realm"),
+		Method:    stringField(data, "method"),
+		Intent:    stringField(data, "intent"),
+		Request:   mapField(data, "request"),
+		Expires:   stringField(data, "expires"),
+		Digest:    stringField(data, "digest"),
+		Opaque:    opaque,
+	})
 	printJSON(commandResponse{Success: true, Result: result})
+}
+
+// decodeOpaqueParam decodes the wire-form opaque auth-param: base64url,
+// no padding, of a JCS-serialized flat string-to-string map.
+func decodeOpaqueParam(wire string) (map[string]string, error) {
+	if wire == "" {
+		return nil, nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(wire)
+	if err != nil {
+		return nil, fmt.Errorf("opaque is not valid base64url: %w", err)
+	}
+	var opaque map[string]string
+	if err := json.Unmarshal(decoded, &opaque); err != nil {
+		return nil, fmt.Errorf("opaque does not decode to a flat string map: %w", err)
+	}
+	return opaque, nil
 }
 
 func handleAdapterRequest() {
@@ -535,34 +557,6 @@ func parseConformanceReceipt(header string) (*mpp.Receipt, error) {
 	return receipt, nil
 }
 
-// generateConformanceChallengeID computes an HMAC-SHA256 challenge ID with
-// raw-string opaque support. The conformance spec allows opaque to be a plain
-// string placed directly in the pipe-delimited HMAC input, which differs from
-// the library's map[string]string encoding. Once the spec settles on a single
-// encoding this can be replaced with mpp.GenerateChallengeID.
-func generateConformanceChallengeID(secretKey, realm, method, intent string, request map[string]any, expires, digest, opaque string) (string, error) {
-	if len([]byte(secretKey)) < minimumSecretKeyBytes {
-		return "", fmt.Errorf("secretKey must be at least %d bytes", minimumSecretKeyBytes)
-	}
-
-	requestB64, _ := encodeJSONBase64URL(request)
-
-	input := strings.Join([]string{
-		realm,
-		method,
-		intent,
-		requestB64,
-		expires,
-		digest,
-		opaque,
-	}, "|")
-
-	mac := hmac.New(sha256.New, []byte(secretKey))
-	mac.Write([]byte(input))
-
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
-}
-
 func formatConformanceReceipt(receipt *mpp.Receipt) (string, error) {
 	payload := map[string]any{
 		"status":    receipt.Status,
@@ -587,17 +581,6 @@ func formatConformanceReceipt(receipt *mpp.Receipt) (string, error) {
 
 func formatReceiptTimestamp(timestamp time.Time) string {
 	return timestamp.UTC().Format(time.RFC3339Nano)
-}
-
-func encodeJSONBase64URL(data map[string]any) (string, error) {
-	var buffer bytes.Buffer
-	encoder := json.NewEncoder(&buffer)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(data); err != nil {
-		return "", err
-	}
-	encoded := strings.TrimSuffix(buffer.String(), "\n")
-	return base64.RawURLEncoding.EncodeToString([]byte(encoded)), nil
 }
 
 func stringField(data map[string]any, key string) string {
